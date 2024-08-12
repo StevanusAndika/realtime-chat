@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link rel="stylesheet" href="style.css"/>
+</head>
+<body class="flex flex-col items-center justify-center w-screen min-h-screen bg-gray-100 text-gray-800 p-10">
+
+    <!-- Component Start -->
+    <div class="flex flex-col flex-grow w-full max-w-xl bg-white shadow-xl rounded-lg overflow-hidden">
+        <div id="chat" class="chat-container flex flex-col flex-grow h-0 p-4 overflow-auto">
+            <!-- Chat messages will be appended here -->
+        </div>
+        <div class="bg-gray-300 p-4 flex items-center space-x-2">
+            <input id="messageInput" class="flex-grow h-10 rounded px-3 text-sm" type="text" placeholder="Type your message…">
+            <button id="sendButton" class="h-11 px-5 bg-blue-500 text-white rounded">Send</button>
+        </div>
+    </div>
+    <!-- Component End -->
+
+    <script>
+        const socket = io();
+const chat = document.getElementById('chat');
+const messageInput = document.getElementById('messageInput');
+const sendButton = document.getElementById('sendButton');
+        
+let userName = ''; // Variabel untuk menyimpan nama pengguna
+
+// Tampilkan prompt SweetAlert2 untuk memasukkan nama
+Swal.fire({
+    title: 'Masukkan nama Anda',
+    input: 'text',
+    inputPlaceholder: 'Nama Anda',
+    inputValidator: (value) => {
+        return !value && 'Anda perlu memasukkan nama!'
+    },
+    allowOutsideClick: false
+}).then((result) => {
+    if (result.isConfirmed) {
+        userName = result.value; // Simpan nama pengguna
+        const userId = Math.random().toString(36).substring(2);
+
+        // Fungsi untuk menambahkan pesan ke jendela chat
+        function appendMessage(message, isSender) {
+            const messageElement = document.createElement('div');
+            messageElement.className = `flex w-full mt-2 space-x-3 max-w-xs ${isSender ? 'ml-auto justify-end' : ''} message`;
+            messageElement.dataset.messageId = message.id; // Simpan ID pesan untuk penghapusan
+            messageElement.innerHTML = `
+                <div>
+                    <div class="${isSender ? 'bg-blue-600 text-white' : 'bg-gray-300'} p-3 rounded-${isSender ? 'l' : 'r'}-lg rounded-${isSender ? 'br' : 'bl'}-lg">
+                        <p class="text-sm">${message.text}</p>
+                    </div>
+                    <span class="text-xs text-gray-500 leading-none">${message.timestamp}</span>
+                </div>
+                <div class="${isSender ? 'text-right' : 'text-left'} text-xs text-gray-500 mt-1">
+                    ${message.userName}
+                </div>
+               
+                ${isSender ? '' : '<div class="flex-shrink-0 h-10 w-10 rounded-full bg-gray-300"></div>'}
+            `;
+            chat.appendChild(messageElement);
+            chat.scrollTop = chat.scrollHeight; // Gulir ke bawah
+        }
+
+        // Fungsi untuk mengirim pesan
+        function sendMessage() {
+            const messageText = messageInput.value;
+            if (messageText.trim() && !containsForbiddenContent(messageText)) {
+                const message = {
+                    text: messageText,
+                    timestamp: new Date().toLocaleTimeString(),
+                    userId: userId,
+                    userName: userName,
+                    id: Math.random().toString(36).substring(2) // Generate ID unik untuk pesan
+                };
+                socket.emit('chat message', message);
+                messageInput.value = '';
+                appendMessage(message, true); // true menunjukkan pesan berasal dari pengirim
+            } else {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Pesan Tidak Valid',
+                    text: 'Kata-kata / URL telah dibanned, silakan gunakan kata-kata yang sopan'
+                });
+            }
+        }
+
+        // Fungsi untuk memeriksa konten terlarang dalam pesan
+        function containsForbiddenContent(text) {
+            const forbiddenWords = [
+                // Kata kasar bahasa Indonesia
+                'jancok', 'bgst', 'ajg', 'vcs', 'judol', 
+                'babi', 'anjing', 'kontol', 'goblok', 'bego', 
+                'brengsek', 'sialan', 'perek', 'pelacur', 'tai', 'yatim', 'piatu', 'idiot', 'cabut', 'Tuhan', 'tuhab',
+
+                // Kata kasar bahasa Jawa
+                'asu', 'jancok', 'keparat', 'wedok', 'bajingan',
+
+                // Kata kasar bahasa Sunda
+                'babi', 'jancuk', 'ngentot', 'bajingan',
+
+                // Kata kasar bahasa Batak
+                'anjing', 'babi', 'jancok', 'kepala batu',
+
+                // Kata kasar bahasa Minangkabau
+                'babi', 'anjing', 'perek', 'bajingan',
+
+                // Kata kasar bahasa Jepang
+                'Yarima', 'Mangko', 'baka', 'uzai'
+            ];
+
+            const urlPattern = /https?:\/\/[^\s]+/;
+            return urlPattern.test(text) || forbiddenWords.some(word => text.toLowerCase().includes(word));
+        }
+
+        // Fungsi untuk menghapus pesan
+        window.deleteMessage = function(messageId, forAll) {
+            socket.emit('delete message', { messageId, forAll });
+        };
+
+        // Kirim pesan saat pengguna menekan Enter
+        messageInput.addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // Kirim pesan saat tombol "Kirim" diklik
+        sendButton.addEventListener('click', function () {
+            sendMessage();
+        });
+
+        // Terima pesan dari server dan tambahkan ke jendela chat
+        socket.on('chat message', function (message) {
+            if (message.userId !== userId) { // Periksa apakah pesan berasal dari pengguna lain
+                appendMessage(message, false); // false menunjukkan pesan berasal dari penerima
+            }
+        });
+
+        // Terima semua pesan yang ada dari server
+        socket.on('all messages', function (messages) {
+            messages.forEach(message => {
+                if (message.userId !== userId) {
+                    appendMessage(message, false); // false menunjukkan pesan berasal dari penerima
+                } else {
+                    appendMessage(message, true); // true menunjukkan pesan berasal dari pengirim
+                }
+            });
+        });
+
+        // Tangani penghapusan pesan dari server
+        socket.on('delete message', function (data) {
+            if (data.forAll) {
+                // Hapus pesan untuk semua pengguna
+                document.querySelectorAll(`.message[data-message-id="${data.messageId}"]`).forEach(element => element.remove());
+            } else {
+                // Hapus pesan hanya untuk pengirim
+                const messageElement = document.querySelector(`.message[data-message-id="${data.messageId}"]`);
+                if (messageElement) {
+                    messageElement.remove();
+                }
+            }
+        });
+    }
+});
+
+    </script>
+
+</body>
+</html>
